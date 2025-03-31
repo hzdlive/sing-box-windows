@@ -1,5 +1,6 @@
 use crate::utils::app_util::get_work_dir;
 use serde_json::json;
+#[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use std::path::Path;
 use tauri::Emitter;
@@ -78,7 +79,12 @@ pub async fn download_and_install_update(
 ) -> Result<(), String> {
     
     let work_dir = get_work_dir();
+    
+    #[cfg(target_os = "windows")]
     let download_path = Path::new(&work_dir).join("update.exe");
+    
+    #[cfg(target_os = "linux")]
+    let download_path = Path::new(&work_dir).join("update.AppImage");
 
     // 发送开始下载事件
     let _ = window.emit(
@@ -121,10 +127,28 @@ pub async fn download_and_install_update(
     );
 
     // 启动安装程序
-    std::process::Command::new(download_path)
-        .creation_flags(0x08000000)
-        .spawn()
-        .map_err(|e| format!("启动安装程序失败: {}", e))?;
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new(download_path)
+            .creation_flags(0x08000000)
+            .spawn()
+            .map_err(|e| format!("启动安装程序失败: {}", e))?;
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        // 赋予执行权限
+        std::process::Command::new("chmod")
+            .arg("+x")
+            .arg(download_path.to_str().unwrap())
+            .spawn()
+            .map_err(|e| format!("无法设置可执行权限: {}", e))?;
+            
+        // 执行安装程序 
+        std::process::Command::new(download_path)
+            .spawn()
+            .map_err(|e| format!("启动安装程序失败: {}", e))?;
+    }
 
     Ok(())
 } 

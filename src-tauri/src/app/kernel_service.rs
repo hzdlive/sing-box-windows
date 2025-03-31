@@ -5,9 +5,10 @@ use serde_json::json;
 use std::path::Path;
 use crate::utils::app_util::get_work_dir;
 use crate::utils::file_util::{ unzip_file};
+#[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use tauri::Emitter;
-use crate::app::constants::{paths, process, messages, network};
+use crate::app::constants::{paths, messages, network};
 use tauri::{Runtime, Window};
 use tokio::task;
 use tokio::sync::mpsc;
@@ -30,19 +31,38 @@ pub async fn check_kernel_version() -> Result<String, String> {
         return Err(messages::ERR_KERNEL_NOT_FOUND.to_string());
     }
 
-    let output = std::process::Command::new(kernel_path)
-        .arg("version")
-        .creation_flags(process::CREATE_NO_WINDOW)
-        .output()
-        .map_err(|e| format!("{}: {}", messages::ERR_VERSION_CHECK_FAILED, e))?;
+    #[cfg(target_os = "windows")]
+    {
+        let output = std::process::Command::new(kernel_path)
+            .arg("version")
+            .creation_flags(process::CREATE_NO_WINDOW)
+            .output()
+            .map_err(|e| format!("{}: {}", messages::ERR_VERSION_CHECK_FAILED, e))?;
 
-    if !output.status.success() {
-        let error = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("{}: {}", messages::ERR_GET_VERSION_FAILED, error));
+        if !output.status.success() {
+            let error = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("{}: {}", messages::ERR_GET_VERSION_FAILED, error));
+        }
+
+        let version_info = String::from_utf8_lossy(&output.stdout);
+        Ok(version_info.to_string())
     }
 
-    let version_info = String::from_utf8_lossy(&output.stdout);
-    Ok(version_info.to_string())
+    #[cfg(target_os = "linux")]
+    {
+        let output = std::process::Command::new(kernel_path)
+            .arg("version")
+            .output()
+            .map_err(|e| format!("{}: {}", messages::ERR_VERSION_CHECK_FAILED, e))?;
+
+        if !output.status.success() {
+            let error = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("{}: {}", messages::ERR_GET_VERSION_FAILED, error));
+        }
+
+        let version_info = String::from_utf8_lossy(&output.stdout);
+        Ok(version_info.to_string())
+    }
 }
 
 // 运行内核
@@ -139,21 +159,39 @@ pub async fn download_latest_kernel(window: tauri::Window) -> Result<(), String>
     }
 
     // 构建目标文件名
+    #[cfg(target_os = "windows")]
     let target_asset_name = format!("sing-box-{}-{}-{}.zip", version, platform, arch);
+    
+    #[cfg(target_os = "linux")] 
+    let target_asset_name = format!("sing-box-{}-{}-{}.tar.gz", version, platform, arch);
+    
     info!("目标文件名: {}", target_asset_name);
 
-    // 查找Windows版本资源
+    // 查找适合当前系统的资源
     let assets = release["assets"].as_array().ok_or("无法获取发布资源")?;
+    
+    #[cfg(target_os = "windows")]
+    let asset_pattern = "windows-amd64";
+    
+    #[cfg(target_os = "linux")]
+    let asset_pattern = "linux-amd64";
+    
+    #[cfg(target_os = "windows")]
+    let file_extension = ".zip";
+    
+    #[cfg(target_os = "linux")]
+    let file_extension = ".tar.gz";
+    
     let asset = assets
         .iter()
         .find(|asset| {
             if let Some(name) = asset["name"].as_str() {
-                name.contains("windows-amd64") && name.ends_with(".zip")
+                name.contains(asset_pattern) && name.ends_with(file_extension)
             } else {
                 false
             }
         })
-        .ok_or("未找到适用于Windows的资源")?;
+        .ok_or(format!("未找到适用于{}的资源", platform))?;
 
     // 获取下载链接
     let original_url = asset["browser_download_url"]

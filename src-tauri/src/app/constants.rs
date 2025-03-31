@@ -23,7 +23,16 @@ pub mod paths {
     /// 获取 Sing-Box 可执行文件路径
     pub fn get_kernel_path() -> PathBuf {
         let work_dir = get_work_dir();
-        PathBuf::from(&work_dir).join("sing-box").join("sing-box.exe")
+        
+        #[cfg(target_os = "windows")]
+        {
+            PathBuf::from(&work_dir).join("sing-box").join("sing-box.exe")
+        }
+        
+        #[cfg(target_os = "linux")]
+        {
+            PathBuf::from(&work_dir).join("sing-box").join("sing-box")
+        }
     }
 
     /// 获取 Sing-Box 工作目录
